@@ -1,0 +1,27 @@
+import { Config, Step } from './types';
+
+export const INITIAL_CONFIG: Config = {
+  step: Step.Type,
+  porteType: null,
+  gamme: null,
+  decor: null,
+  variant: null,
+  vantailWidth: null,
+  vantailHeight: 2040,
+  wallWidth: null,
+  wallDepth: null,
+  direction: 'droit',
+  customSize: false,
+  systemeCoulissant: null,
+  kitCoulissant: null,
+  cadreCoulissant: null,
+  quincaillerieCoulissant: {},
+  serrure: null,
+  cylindre: null,
+  garniture: null,
+  charniere: null,
+  plusValues: {},
+  cadreFinition: 'standard',
+  accessoiresPose: {},
+  mcCoefficient: 1.4,
+};

@@ -1,0 +1,6 @@
+{
+  "name": "Portes d'Intérieur - Configurateur Avancé",
+  "description": "Un configurateur avancé pour commander des portes d'intérieur, entièrement basé sur le catalogue produit. Inclut un assistant IA pour aider à la sélection.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
