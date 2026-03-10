@@ -1,23 +1,19 @@
-
-import { GoogleGenAI } from "@google/genai";
 import { Config } from '../types';
-import { DECORS, CADRES, PLUS_VALUES, ACCESSORIES } from '../data/doorData';
+import { DECORS, PLUS_VALUES, ACCESSORIES } from '../data/doorData';
 
-if (!process.env.API_KEY) {
-  console.warn("API_KEY environment variable not set. Gemini Assistant will not work.");
+const apiKey = process.env.API_KEY;
+if (!apiKey) {
+  console.warn('API_KEY environment variable not set. Gemini Assistant will not work.');
 }
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-
-const model = "gemini-2.5-flash-preview-04-17";
+const model = 'gemini-2.5-flash';
 
 const buildSystemPrompt = () => {
-    // A simplified representation of the data for the prompt
-    const decorPromptData = Object.entries(DECORS).map(([id, data]) => `${id}: ${data.name} (Gamme: ${data.gamme})`).join('\n');
-    const plusValuesPromptData = Object.entries(PLUS_VALUES).map(([id, data]) => `${id}: ${data.name}`).join('\n');
-    const garnituresPromptData = Object.entries(ACCESSORIES.GARNITURES).map(([id, data]) => `${id}: ${data.name}`).join('\n');
+  const decorPromptData = Object.entries(DECORS).map(([id, data]) => `${id}: ${data.name} (Gamme: ${data.gamme})`).join('\n');
+  const plusValuesPromptData = Object.entries(PLUS_VALUES).map(([id, data]) => `${id}: ${data.name}`).join('\n');
+  const garnituresPromptData = Object.entries(ACCESSORIES.GARNITURES).map(([id, data]) => `${id}: ${data.name}`).join('\n');
 
-    return `
+  return `
 You are an expert interior door configurator assistant. Your task is to analyze the user's request and translate it into a valid JSON configuration object.
 The user will describe their needs in French. You MUST respond with ONLY a valid JSON object. Do not add any conversational text or markdown fences like \`\`\`json.
 
@@ -33,7 +29,6 @@ interface Config {
   direction: 'gauche' | 'droit';
   garniture: { id: string; selectedType: string; } | null;
   plusValues: { [key: string]: boolean };
-  // etc.
 }
 \`\`\`
 
@@ -49,71 +44,68 @@ ${plusValuesPromptData}
 ${garnituresPromptData}
 
 **Rules:**
-1.  **Infer values:** If a user says "une porte normale", set \`porteType: 'battante'\` and \`variant: 'standard'\`.
-2.  **Dimensions:** Extract numbers for \`vantailWidth\` and \`wallDepth\`. If a user mentions "mur de 10cm", set \`wallDepth: 100\`.
-3.  **Color/Style:** If a user mentions "look noir" or "moderne noir", try to set \`decor: 'unicolorNoir'\` or add \`plusValues: { 'cadreNoirMat': true }\` or select a black handle like \`garniture: { id: 'toulon', selectedType: 'PZ' }\`.
-4.  **Direction:** Default to 'droit' if not specified.
-5.  **Gamme:** CPL PLUS (\`cpl_plus\`) is for the "Aspect Bois / CPL Noir anti-trace" decor. All others are CPL (\`cpl\`).
-6.  **Response Format:** Your entire output must be a single, raw JSON object.
-
-Example User Request: "Je veux une porte simple pour ma chambre, style chêne ontario, largeur 830mm. Le mur fait 100mm d'épaisseur."
-Example JSON Response:
-{
-  "porteType": "battante",
-  "gamme": "cpl",
-  "decor": "cheneOntario",
-  "variant": "standard",
-  "vantailWidth": 830,
-  "wallDepth": 100,
-  "direction": "droit",
-  "plusValues": {},
-  "garniture": null
-}
+1. If a user says "une porte normale", set \`porteType: 'battante'\` and \`variant: 'standard'\`.
+2. Extract numbers for \`vantailWidth\` and \`wallDepth\`. If a user mentions "mur de 10cm", set \`wallDepth: 100\`.
+3. If a user mentions "look noir" or "moderne noir", prefer \`decor: 'unicolorNoir'\`.
+4. Direction defaults to 'droit' if not specified.
+5. CPL PLUS (\`cpl_plus\`) is for "Aspect Bois / CPL Noir anti-trace". Others are CPL (\`cpl\`).
+6. Output strictly a raw JSON object.
 `;
 };
 
+const extractTextFromGeminiResponse = (payload: any): string | null => {
+  const parts = payload?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return null;
+  const text = parts.map((p: any) => p?.text).filter(Boolean).join('\n').trim();
+  return text || null;
+};
 
 export const getAIConfig = async (userInput: string): Promise<Partial<Config> | null> => {
-  if (!process.env.API_KEY) {
-    throw new Error("Gemini API key is not configured.");
+  if (!apiKey) {
+    throw new Error('Gemini API key is not configured.');
   }
-  
+
   const systemPrompt = buildSystemPrompt();
-  
+
   try {
-    const response = await ai.models.generateContent({
-        model,
-        contents: userInput,
-        config: {
-            systemInstruction: systemPrompt,
-            responseMimeType: "application/json",
-            temperature: 0.2,
-        }
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: userInput }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.2,
+        },
+      }),
     });
 
-    const jsonText = response.text;
-    if (!jsonText) {
-      throw new Error("Gemini returned an empty response.");
+    if (!response.ok) {
+      throw new Error(`Gemini API request failed with status ${response.status}`);
     }
-    
+
+    const payload = await response.json();
+    const jsonText = extractTextFromGeminiResponse(payload);
+    if (!jsonText) {
+      throw new Error('Gemini returned an empty response.');
+    }
+
     let jsonStr = jsonText.trim();
     const fenceRegex = /^```(\w*)?\s*\n?(.*?)\n?\s*```$/s;
     const match = jsonStr.match(fenceRegex);
-    if (match && match[2]) {
-        jsonStr = match[2].trim();
+    if (match?.[2]) {
+      jsonStr = match[2].trim();
     }
 
     const parsedConfig = JSON.parse(jsonStr);
-    
-    // Basic validation to ensure we have a somewhat valid object
     if (typeof parsedConfig === 'object' && parsedConfig !== null && 'porteType' in parsedConfig) {
       return parsedConfig as Partial<Config>;
     }
 
-    throw new Error("Parsed data is not a valid configuration object.");
-
+    throw new Error('Parsed data is not a valid configuration object.');
   } catch (error) {
-    console.error("Error fetching or parsing AI configuration:", error);
+    console.error('Error fetching or parsing AI configuration:', error);
     if (error instanceof SyntaxError) {
       throw new Error("L'assistant a retourné une réponse malformée. Veuillez réessayer.");
     }
